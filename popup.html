@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {
+      font-family: sans-serif;
+      width: 260px;
+      padding: 12px;
+      margin: 0;
+      box-sizing: border-box;
+    }
+    button {
+      width: 100%;
+      padding: 8px;
+      margin-bottom: 6px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    #status {
+      font-weight: bold;
+      font-size: 13px;
+      margin-bottom: 6px;
+      color: #0b57d0;
+    }
+    #urlList {
+      max-height: 140px;
+      overflow-y: auto;
+      font-size: 11px;
+      color: #444;
+      padding-left: 18px;
+      margin: 0 0 10px 0;
+      word-break: break-all;
+    }
+  </style>
+</head>
+<body>
+  <div id="status">Loading...</div>
+  <ul id="urlList"></ul>
+
+  <button id="saveNowBtn">Force Save Open Tabs</button>
+  <button id="restoreNowBtn">Manual Restore</button>
+  <button id="clearBtn">Clear Saved Session</button>
+
+  <script src="popup.js"></script>
+</body>
+</html>

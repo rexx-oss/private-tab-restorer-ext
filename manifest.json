@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "Private Tab Keeper",
+  "version": "2.1",
+  "description": "Retains private tabs across browser restarts.",
+  "permissions": [
+    "tabs",
+    "storage"
+  ],
+  "incognito": "spanning",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Private Tab Keeper"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}
