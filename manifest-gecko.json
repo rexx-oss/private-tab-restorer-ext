@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Private Tab Keeper",
+  "version": "2.3",
+  "description": "Retains private tabs across browser restarts.",
+  "permissions": [
+    "tabs",
+    "storage"
+  ],
+  "incognito": "spanning",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "private-tab-keeper@waterfox.android",
+      "strict_min_version": "109.0"
+    }
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Private Tab Keeper"
+  },
+  "background": {
+    "scripts": ["background.js"]
+  }
+}
