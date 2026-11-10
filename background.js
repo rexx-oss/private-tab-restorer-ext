@@ -1,31 +1,14 @@
 let isRestoring = false;
 let saveTimer = null;
-let inMemoryFlags = {};
 
-// Helper: Check if a URL is a real website
+// Helper: Check if a URL is a real website (not vivaldi:// or blank speed dials)
 function isRealWebUrl(url) {
   if (typeof url !== "string") return false;
   const u = url.trim().toLowerCase();
   return u.startsWith("http://") || u.startsWith("https://");
 }
 
-// Session flag helpers (cleared automatically by Android when browser process exits)
-async function getSessionFlag(key) {
-  if (chrome.storage && chrome.storage.session) {
-    const res = await chrome.storage.session.get(key);
-    return res && res[key];
-  }
-  return inMemoryFlags[key];
-}
-
-async function setSessionFlag(key, val) {
-  if (chrome.storage && chrome.storage.session) {
-    await chrome.storage.session.set({ [key]: val });
-  }
-  inMemoryFlags[key] = val;
-}
-
-// Save active private tabs
+// 1. Save active private tabs (NEVER wipes storage on startup)
 function saveCurrentPrivateTabs() {
   if (isRestoring) return;
 
@@ -33,30 +16,16 @@ function saveCurrentPrivateTabs() {
     if (chrome.runtime.lastError || !tabs) return;
 
     const incognitoTabs = tabs.filter((t) => t.incognito);
-
-    // If private mode is not open, do not touch storage (protects normal browsing)
     if (incognitoTabs.length === 0) return;
-
-    // Check if any tab is still resolving its URL
-    const anyLoading = incognitoTabs.some(
-      (t) => t.status === "loading" && !isRealWebUrl(t.url || t.pendingUrl)
-    );
-    if (anyLoading) {
-      queueSave(1000);
-      return;
-    }
 
     const realUrls = incognitoTabs
       .map((t) => t.url || t.pendingUrl)
       .filter((url) => isRealWebUrl(url));
 
+    // CRITICAL: ONLY write when real websites exist. 
+    // If realUrls is 0 (like when Speed Dial loads on boot), DO NOTHING so saved tabs are never wiped!
     if (realUrls.length > 0) {
-      // We have active websites open -> update storage
       chrome.storage.local.set({ savedPrivateTabs: realUrls });
-    } else {
-      // You are in Private mode, but closed the last website tab!
-      // Clear memory so opening a new fresh tab won't revive the closed tab.
-      chrome.storage.local.remove("savedPrivateTabs");
     }
   });
 }
@@ -67,10 +36,10 @@ function queueSave(delay = 500) {
   saveTimer = setTimeout(saveCurrentPrivateTabs, delay);
 }
 
-// Safe Sequential Restore
+// 2. Safe Sequential Restore (prevents tab multiplication and dropped tabs)
 async function safeRestore(savedUrls, starterTab) {
+  if (isRestoring) return;
   isRestoring = true;
-  await setSessionFlag("hasRestoredOnStartup", true);
 
   try {
     const currentTabs = await new Promise((resolve) => {
@@ -84,6 +53,7 @@ async function safeRestore(savedUrls, starterTab) {
         .filter((url) => isRealWebUrl(url))
     );
 
+    // Filter out URLs that are ALREADY open
     const urlsToOpen = savedUrls.filter((url) => !openUrls.has(url));
 
     if (urlsToOpen.length === 0) {
@@ -91,6 +61,7 @@ async function safeRestore(savedUrls, starterTab) {
       return;
     }
 
+    // Open tabs sequentially with 80ms buffer
     for (let i = 0; i < urlsToOpen.length; i++) {
       await new Promise((resolve) => {
         const createProps = {
@@ -121,18 +92,13 @@ async function safeRestore(savedUrls, starterTab) {
   } finally {
     setTimeout(() => {
       isRestoring = false;
-    }, 2500);
+    }, 2000);
   }
 }
 
-// Check and restore on launch
-async function checkAndRestore() {
+// 3. Check and restore on launch
+function checkAndRestore() {
   if (isRestoring) return;
-
-  // RULE 1: Only restore ONCE per browser boot.
-  // If the browser is already running and you tap '+', this prevents reviving old tabs.
-  const alreadyRestored = await getSessionFlag("hasRestoredOnStartup");
-  if (alreadyRestored) return;
 
   chrome.tabs.query({}, (tabs) => {
     if (chrome.runtime.lastError || !tabs) return;
@@ -140,12 +106,14 @@ async function checkAndRestore() {
     const incognitoTabs = tabs.filter((t) => t.incognito);
     if (incognitoTabs.length === 0) return;
 
+    // If real websites are already open, browsing is active -> do not restore
     const realWebTabs = incognitoTabs.filter((t) => isRealWebUrl(t.url || t.pendingUrl));
     if (realWebTabs.length > 0) {
       queueSave();
       return;
     }
 
+    // Only restore if sitting on a fresh blank/Speed Dial tab
     chrome.storage.local.get(["savedPrivateTabs"], (res) => {
       const urls = res.savedPrivateTabs;
       if (urls && urls.length > 0 && !isRestoring) {
@@ -155,21 +123,45 @@ async function checkAndRestore() {
   });
 }
 
-// Listeners
+// Event: A tab is created
 chrome.tabs.onCreated.addListener((tab) => {
   if (tab.incognito) {
     checkAndRestore();
   }
 });
 
+// Event: Page finishes or updates
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (tab.incognito) {
     queueSave();
   }
 });
 
+// Event: User closes a tab manually
 chrome.tabs.onRemoved.addListener(() => {
-  queueSave();
+  if (isRestoring) return;
+
+  setTimeout(() => {
+    if (isRestoring) return;
+
+    chrome.tabs.query({}, (tabs) => {
+      if (chrome.runtime.lastError || !tabs) return;
+
+      const incognitoTabs = tabs.filter((t) => t.incognito);
+      const realUrls = incognitoTabs
+        .map((t) => t.url || t.pendingUrl)
+        .filter((url) => isRealWebUrl(url));
+
+      if (realUrls.length > 0) {
+        // Still have tabs open -> update the list
+        chrome.storage.local.set({ savedPrivateTabs: realUrls });
+      } else if (incognitoTabs.length > 0) {
+        // USER MANUALLY CLOSED THE LAST TAB!
+        // Clear storage so opening a new tab doesn't revive the closed tab.
+        chrome.storage.local.remove("savedPrivateTabs");
+      }
+    });
+  }, 200);
 });
 
 // Popup messaging
@@ -190,5 +182,5 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 });
 
-// Run once on background wake-up
+// Run once on worker wake-up
 checkAndRestore();
